@@ -1,0 +1,1244 @@
+#!/pro/bin/perl
+
+use strict;
+
+# TODO:	internal env
+#	use warnings
+#	Xamen specific help on keys/mouse in help-menu on MainWin
+#	Extended support for dutch (buttons, menu's)
+#	Argument expansion (both internal and external), also in quests
+#	Output redirection
+#	getopt () => Getopt::Long
+#	Docs in pod
+
+# Perl/Tk implementation of cshmen, a basic menu program
+#
+# Copyright (C) 1996-2006 H.Merijn Brand, PROCURA B.V.
+
+# This library is free software; you can redistribute it and/or modify
+# it under the same terms as Perl itself. 
+
+our $VERSION = "3.50";
+
+my $xamen_logo_file         = "/pro/lib/Xamen.xpm";
+my $company_logo_image_file = "/pro/lib/ProLogo.xpm";
+my $company_info_string     =
+	    "***\n\nPROCURA B.V. Heerhugowaard\n\n(072) 571 25 05\n\n***";
+
+use Tk;
+use Tk::Clock;
+use Tk::ROText;
+
+my (%opt, $mdir, $mdef, @mstack, %mtree, %font, %color, %geo, %Win);
+my ($term, $icon);
+my ($CancelTxt, $ExitTxt, $RestartTxt, $ErrorTxt, $InfoTxt, $PickTxt,
+    $CmndTxt,   $MenuTxt, $ApplTxt,    $EnterTxt, $HelpTxt);
+my ($ACTV_ACT, $ACTV_WAIT, $ACTV_DISP, $ACTV_MENU) = (1, 2, 4, 8);
+
+getres ();
+getopt ("adeNl:m:ntXv?");
+
+get_men ($mdef) or exit -1;
+
+to_background ();
+initmen ();
+
+MainLoop;
+
+exit 0;
+
+### ###########################################################################
+
+sub xamen_help ()
+{
+    my @hlp = $opt{e} ?
+	( "this list", "english", "debug", "verbose",
+	  "base location for MENU is dir", "base menu description file",
+	  "enable loops", "administrator", "dutch" ) :
+	( "deze lijst", "engels", "foutopsporing", "breedsprakig",
+	  "MENU locatie is dir", "basismenu bestand", "loops mogelijk",
+	  "administratief gebruiker", "nederlandstalig" );
+
+    usage (-123);
+    print STDERR
+	"	--help    -?	$hlp[0]\n",
+	"	--admin   -a	$hlp[7]\n",
+	"	--english -e	$hlp[1]\n",
+	"	--dutch   -N	$hlp[8]\n",
+	"	--debug   -d	$hlp[2]\n",
+	"	--verbose -v	$hlp[3]\n",
+	"	--dir=dir -mdir	$hlp[4]\n",
+	"	menu		$hlp[5]\n";
+    exit 0;
+    } # xamen_help
+
+sub usage
+{
+    print STDERR $opt{e} ? "usage" : "gebruik", ": $0 ";
+    print STDERR "[-?] [-a] [-e] [-d] [-v] [-n] [-m dir] [menu]\n";
+    @_ && $_[0] == 123 or
+	exit 0;
+    } # usage
+
+sub version
+{
+    print STDERR "$0: $VERSION\n";
+    exit 0;
+    } # version
+
+sub expand_arg
+{
+    my @arg = grep m/\S/, split m/([\$\%])/, $_[0];
+
+    @arg <= 1	and return $arg[0];
+    foreach my $i (reverse 0 .. $#arg) {
+	my $arg = $arg[$i];
+	my @ref = split m/(\W+)/, $arg[$i + 1];
+	if ($arg eq '$') {
+	    my $newarg = join ("", $ENV{shift @ref}, @ref);
+	    splice @arg, $i, 2, $newarg;
+	    next;
+	    }
+#	if ($arg eq '%') {
+#	    splice @arg, $i, 2, $ENV{$arg[$i + 1]};
+#	    next;
+#	    }
+	}
+    #$opt{v} and info ("$_[0]\n=>\n" . join ("", @arg));
+    join "", @arg;
+    } # expand_arg
+
+sub getopt
+{
+    my $list = shift;
+
+    my @ARGS = @ARGV;
+
+    defined $ENV{CSHMEN}	and unshift @ARGS, $ENV{CSHMEN};
+    defined $ENV{XAMEN}		and unshift @ARGS, $ENV{XAMEN};
+
+    my $argc = $#ARGS;
+    my $arg;
+    foreach my $idx (reverse (0 .. $argc)) {
+	$arg = $ARGS[$idx];
+	$arg =~ m/^--\S/	or next;
+	$arg eq "--version"	and ($ARGS[$idx] = "-version",	next);
+	$arg eq "--help"	and ($ARGS[$idx] = "-?",	next);
+	$arg eq "--admin"	and ($ARGS[$idx] = "-a",	next);
+	$arg eq "--english"	and ($ARGS[$idx] = "-e",	next);
+	$arg eq "--dutch"	and ($ARGS[$idx] = "-N",	next);
+	$arg eq "--debug"	and ($ARGS[$idx] = "-d",	next);
+	$arg eq "--verbose"	and ($ARGS[$idx] = "-v",	next);
+	$arg =~ m/^--dir=(\S+)/	and ($ARGS[$idx] = "-m$1",	next);
+	$arg =~ m/^--lang=(\S+)/and ($ARGS[$idx] = "-l$1",	next);
+
+	if ($arg =~ s/^--geometry=//) {
+	    if ($arg =~ s/^(\d+)x(\d+)//) {
+		$geo{org_w} = $1 + 0;
+		$geo{org_h} = $2 + 0;
+		}
+	    if ($arg =~ m/^([+-]\d+)([+-]\d+)$/) {
+		$geo{org_x} = $1 + 0;
+		$geo{org_y} = $2 + 0;
+		}
+	    splice @ARGS, $idx, 1;
+	    next;
+	    }
+
+	if ($arg =~ m/^--( fontPrp    | fontFix
+			 | foreground | background
+			 | colorEntry | colorMenu    | colorComment
+			 | colorInfo  | colorCurrent
+			 | colorHot   | colorRealHot
+			 | colorTicks | colorHands   | colorSecHand
+			 | term       | helpWidth    | helpHeight
+			 )=(.*)/x) {
+	    my ($var, $val) = ($1, $2);
+	    if ($var =~ m/^color(\w+)/ || $var =~ m/^((?:fore|back)ground)/) {
+		$color{$1} = $val;
+		}
+	    elsif ($var =~ m/^font(\w+)/) {
+		$font{$1} = $val;
+		}
+	    elsif ($var =~ m/help/) {
+		$geo{$var} = $val;
+		}
+	    else {
+		$$1 = $2;
+		}
+	    splice @ARGS, $idx, 1;
+	    next;
+	    }
+	}
+
+    $argc == 0 && $ARGS[0] eq "-version" and version ();
+
+    my @opts = split m/ */, $list;
+    while (@ARGS && ($arg = $ARGS[0]) =~ m/^-(.)(.*)/ && $arg ne "--") {
+	my ($opt, $rest) = ($1, $2);
+	my $idx = index $list, $opt;
+
+	if ($idx < $[) {
+	    print STDERR "Unknown option: $opt ($opt$rest)\n";
+	    usage ();
+	    }
+
+	$opt eq "?" && $argc == 0 and xamen_help ();
+
+	shift @ARGS;
+	$opt eq "N" and $opt{e} = 0, next;
+
+	if ($opts[$idx + 1] eq ":") {
+	    if ($rest eq "") {
+		unless ($rest = shift @ARGS) {
+		    print STDERR $opt{e} ?
+			"Option $opt requires argument\n" :
+			"Optie $opt alleen geldig met een argument\n";
+		    usage ();
+		    }
+		}
+	    $opt{$opt} = $rest;
+	    next;
+	    }
+
+	$opt{$opt} = 1;
+	$rest ne "" and unshift @ARGS, "-$rest";
+	}
+
+    @ARGS > 1 and usage ();
+
+    $mdir = dexists ($opt{"m"}) || dexists ($ENV{MENUDIR}) || $ENV{HOME};
+    $mdef = shift (@ARGS) || $ENV{MENUDEF} || ".cshmen";
+
+    chdir $mdir;
+    unless (-f $mdef) {
+	print STDERR "menu '$mdef' ",
+	    $opt{e} ? "not found on" : "niet aanwezig op", " $mdir\n";
+	exit -1;
+	}
+
+    ($CancelTxt, $ExitTxt, $RestartTxt, $ErrorTxt, $InfoTxt, $PickTxt,
+     $CmndTxt, $MenuTxt, $ApplTxt, $EnterTxt) = $opt{e}
+	? ("Cancel",    "Exit",     "Restart",    "ERROR",       "Information",
+	   "Pick",      "Command",  "Menu",       "Application", "Enter")
+	: ("Annuleren", "Einde",    "Herstarten", "FOUT",        "Informatie",
+	   "Kies",      "Commando", "menu",       "applicatie",  "Invoeren");
+    } # getopts
+
+sub getres
+{
+    Tk::CmdLine->LoadResources ();
+    Tk::CmdLine->SetArguments ();
+
+    $SIG{INT}	= "IGNORE";
+    $SIG{QUIT}	= \&exit;
+    $SIG{TERM}	= "DEFAULT";
+
+    $ENV{PATH} .= ":.";
+
+    $mdir	= undef;
+    $mdef	= undef;
+
+    $opt{"a"}	= 0;
+    $opt{"e"}	= 1;	# default english,
+			# overruled by Xamen*language, $CSHMEN, $XAMEN, -N
+    $opt{"d"}	= 0;
+    $opt{"v"}	= 0;
+    $opt{"m"}	= undef;
+
+    my %xrdb;
+    # Now that we use lexicals, this won't work anymore
+    foreach (grep s/^Xamen[\*\.]//, `xrdb -query`) {
+	chomp;
+	s/\s+$//;
+	my ($res, $val) = split m/\s*:\s*/, $_, 2;
+	$xrdb{$res} = $val;
+	}
+
+    defined $font{Prp}	or
+	$font{Prp} = "-hp-*-medium-r-normal-sans-13-*-72-72-p-*-iso8859-1";
+    defined $font{Fix}	or
+	$font{Fix} = "-misc-fixed-medium-r-normal--15-*-75-75-c-*-iso8859-1";
+
+    defined $color{background}	or $color{background}	= "Gray76";
+    defined $color{foreground}	or $color{foreground}	= "Gray10";
+    defined $color{Entry}	or $color{Entry}	= "Blue4";
+    defined $color{Menu}	or $color{Menu}		= "Red4";
+    defined $color{Comment}	or $color{Comment}	= "Green4";
+    defined $color{Info}	or $color{Info}		= "Blue4";
+    defined $color{Current}	or $color{Current}	= "Red4";
+    defined $color{RealHot}	or $color{RealHot}	= "Yellow2";
+    defined $color{Hot}		or $color{Hot}		= "Yellow3";
+    defined $color{Ticks}	or $color{Ticks}	= "Yellow4";
+    defined $color{Hands}	or $color{Hands}	= "Green4";
+    defined $color{SecHand}	or $color{SecHand}	= "Green2";
+    defined $term		or $term		= "xterm";
+
+    defined $geo{helpWidth}	or $geo{helpWidth}	= 50;
+    defined $geo{helpHeight}	or $geo{helpHeight}	= 30;
+
+    defined $geo{org_x}		or $geo{org_x}		= 300;
+    defined $geo{org_y}		or $geo{org_y}		= 300;
+    defined $geo{org_w}		or $geo{org_w}		= 500;
+    defined $geo{org_h}		or $geo{org_h}		= 340;
+
+    defined $xrdb{language} and
+	$opt{e} = $xrdb{language} =~ m/^(?:dutch|nl|nederlands|31)$/i ? 0 : 1;
+    } # getres
+
+sub to_background
+{
+    my $pid = fork;
+    if ($pid < 0) {
+	print STDERR $opt{e} ?
+	    "Unable to run in the background, cannot fork: $!\n" :
+	    "Kan niet in de achtergrond draaien: $!\n";
+	exit $?;
+	}
+    $pid and exit 0;
+    } # to_background
+
+sub fexists
+{
+    my $f = shift;
+
+    -f $f and return $f;
+    undef;
+    } # fexists
+
+sub dexists
+{
+    my $d = shift;
+
+    defined $d && $d =~ m/\S/ && -d $d and return $d;
+    undef;
+    } # dexists
+
+sub get_men
+{
+    my $nm = shift;
+
+    my $men = $mtree{Menu}{$nm} = [];
+    $opt{d} and print STDERR "get_men (\"$nm\", ", scalar @mstack, ")\n";
+    while (@mstack > 1 && grep ($_ eq $men, @mstack)) {
+	my $label = pop @mstack;
+	eval $mtree{envir}{$label};
+	Exists ($Win{Win}{$label}) and $Win{Win}{$label}->destroy;
+	}
+
+    if (@$men > 0) {
+	$men eq $mstack[-1] or push @mstack, $men;
+	return 1;
+	}
+
+    -f $nm && -s _ && -r _ or return 0;
+
+    open MENU, $nm;
+    while (<MENU>) {
+	chomp;
+	while (s/\s*-$//) {
+	    my $rest = <MENU>;
+	    chomp $rest;
+	    $rest =~ s/^\s*/ /;
+	    $_ .= $rest;
+	    }
+	$opt{d} and print STDERR "<<$_>>\n";
+	m/^#/ and next;
+	m/\S/ or  next;
+
+	my ($id, $label, $cmd, $act, $hlp) = split m/:/;
+	my $alias;
+	($id, $alias) = split m/=/, uc $id;
+	$id eq "S" and $id = "Q";
+	$id =~ m/[H0123456789ABCDEFQ]/ or next;
+
+	$act += 0;
+	$act == 0 and next;
+
+	defined $alias or $alias = $id;
+
+	$label =~ s/\s+$//;
+
+	$opt{d} and print "$id=$alias÷$label÷$cmd÷$act÷$hlp\n";
+	if ($id eq "H") {
+	    $mtree{title}{$men} = $label;
+	    $mtree{mfile}{$men} = "$mdir/$nm";
+	    $mtree{envir}{$men} = "";
+	    foreach my $str (split m/\s+/, $cmd) {
+		my ($e, $v) = split m/=/, $str, 2;
+		if (defined $ENV{$e}) {
+		    $mtree{envir}{$men} .= "\$ENV{$e} = '$ENV{$e}';";
+		    }
+		else {
+		    $mtree{envir}{$men} .= "delete \$ENV{$e};";
+		    }
+		$ENV{$e} = expand_arg ($v);
+		}
+	    next;
+	    }
+
+	# How does Xamen deal with \310, \7, \b, \n in parts of $cmd ?
+	my @cmd = split m/\s+/, $cmd;
+
+	$act & $ACTV_WAIT and $act |= $ACTV_ACT;
+	$act & $ACTV_ACT  and $act |= $ACTV_DISP;
+	$cmd =~ m/^M\s/   and $act |= $ACTV_MENU;
+
+	push @$men, $id;
+	my $men_id = "$men:$id";
+	$mtree{alias}{$men_id} = $alias;
+	$mtree{label}{$men_id} = $label;
+	$mtree{cmd}{$men_id}   = $cmd;
+	$mtree{act}{$men_id}   = $act;
+	$mtree{hlp}{$men_id}   = $hlp;
+	}
+    close MENU;
+
+    @$men < 1 and return 0;
+
+    push @mstack, $men;
+    return 1;
+    } # get_men
+
+sub Button_OK
+{
+    my ($w, $cmd) = @_;
+
+    $w->Button (
+	-text               => "OK",
+	-borderwidth        => 1,
+	-highlightthickness => 0,
+	-command            => $cmd)->pack (
+	    -side   => "bottom",
+	    -fill   => "x");
+    } # Button_OK
+
+sub Buttons_OK_Cancel
+{
+    my ($w, $act, $cmd) = @_;
+
+    my $f = $w->Frame ()->pack (
+	-side => "bottom",
+	-fill => "x");
+    $f->Button ( # "  OK  " is as wide as "Cancel" (easyer than place ()
+	-text               => "  OK  ",
+	-borderwidth        => 1,
+	-highlightthickness => 0,
+	-command            => $cmd)->pack (
+	    -side   => "left",
+	    -fill   => "x",
+	    -expand => 1);
+    $f->Button (
+	-text               => $CancelTxt,
+	-borderwidth        => 1,
+	-highlightthickness => 0,
+	-command            => [$w => $act])->pack (
+	    -side   => "right",
+	    -fill   => "x",
+	    -expand => 1);
+    } # Buttons_OK_Cancel
+
+sub merror
+{
+    my $msg = shift;
+
+    Exists ($Win{Error}) and $Win{Error}->destroy;
+    $Win{Error} = $Win{Main}->Toplevel;
+
+    $Win{Error}->title ("Xamen $ErrorTxt");
+    $Win{Error}->iconname ("Info");
+    $Win{Error}->geometry (sprintf "+%d+%d", $geo{org_x} + 58, $geo{org_y} + 78);
+
+    Button_OK ($Win{Error}, sub { $Win{Error}->destroy });
+
+    $Win{Error}->Label (
+	-bitmap => "error")->pack (
+	    -side => "left",
+	    -padx => ".25c");
+
+    $Win{Error}->Label (
+	-bitmap => "error")->pack (
+	    -side => "right",
+	    -padx => ".25c");
+
+    $Win{Error}->Label (
+	-font       => $font{Prp},
+	-foreground => $color{Info},
+	-wraplen    => "4i",
+	-anchor     => "center",
+	-justify    => "center",
+	-text       => "$msg")->pack (
+	    -pady   => ".5c",
+	    -fill   => "both",
+	    -expand => 1);
+    } # merror
+
+sub info
+{
+    my $msg = shift;
+
+    my $WinInfo = $Win{Main}->Toplevel;
+
+    $WinInfo->title ("Xamen $InfoTxt");
+    $WinInfo->iconname ("Info");
+    $WinInfo->geometry (sprintf "+%d+%d", $geo{org_x} + 500, $geo{org_y} + 340);
+
+    Button_OK ($WinInfo, sub { $WinInfo->destroy });
+
+    $WinInfo->Label (
+	-bitmap => "info")->pack (
+	    -side => "left",
+	    -padx => ".25c");
+
+    $WinInfo->Label (
+	-bitmap => "info")->pack (
+	    -side => "right",
+	    -padx => ".25c");
+
+    $WinInfo->Label (
+	-font       => $font{Prp},
+	-foreground => $color{Info},
+	-wraplen    => "4i",
+	-anchor     => "center",
+	-justify    => "center",
+	-text       => "$msg")->pack (
+	    -pady   => ".5c",
+	    -fill   => "both",
+	    -expand => 1);
+    } # info
+
+sub new_pickwin
+{
+    my ($label, $callback) = @_;
+
+    my $LTxt = "$label:";
+
+    if (Exists $Win{Pick}) {
+	$Win{Pick}->deiconify;
+	$Win{Pick}->raise;
+	}
+    else {
+	$Win{Pick} = $Win{Main}->Toplevel;
+	$Win{Pick}->iconname ("Pick");
+
+	Buttons_OK_Cancel ($Win{Pick}, "withdraw",
+	    sub {
+		&$callback ($Win{PickLst}->get ("active"));
+		$Win{Pick}->withdraw;
+		});
+
+	$Win{Pick}->Label (-textvariable => \$LTxt)->pack (
+	    -side   => "top",
+	    -anchor => "w");
+
+	$Win{PickLst} = $Win{Pick}->Scrolled ("Listbox",
+	    -scrollbars             => "oe",
+		-borderwidth        => 1,
+		-highlightthickness => 0,
+		-width              => 20,
+		-height             => 10)->pack (
+		    -side   => "top",
+		    -fill   => "both",
+		    -expand => 1)->Subwidget ("scrolled");
+	$Win{PickLst}->bind ("<Double-1>" => sub {
+	    &$callback ($Win{PickLst}->get ("active"));
+	    $Win{Pick}->withdraw;
+	    });
+	}
+    $Win{Pick}->title ("$PickTxt ${label}s");
+    } # new_pickwin
+
+sub pick_appl
+{
+    $opt{a} or return;
+
+    new_pickwin ($ApplTxt, sub { xterm ($ApplTxt, "amgr @_"); });
+
+    $Win{PickLst}->delete (0, "end");
+    foreach (sort grep (-s, (<$ENV{ACLENV}/*/*.al >))) {
+	s:$ENV{ACLENV}/[^/]+.(.*)\.al:$1:;
+	$Win{PickLst}->insert ("end", $_);
+	}
+    } # pick_appl
+
+sub pick_menu
+{
+    $opt{a} or return;
+
+    new_pickwin ($MenuTxt, \&new_men);
+
+    $Win{PickLst}->delete (0, "end");
+    opendir MENUDIR, ".";
+    foreach (sort grep (-f && -s, readdir MENUDIR)) {
+	open MENU, $_ or next;
+	grep m/^H:/, (<MENU>) and $Win{PickLst}->insert ("end", $_);
+	close MENU;
+	}
+    closedir MENUDIR;
+    } # pick_menu
+
+sub enter_command
+{
+    $opt{a} or return;
+
+    Exists ($Win{Cmnd}) and $Win{Cmnd}->destroy;
+    $Win{Cmnd} = $Win{Main}->Toplevel;
+
+    $Win{Cmnd}->title ("$EnterTxt $CmndTxt");
+    $Win{Cmnd}->iconname ("Command");
+    $Win{Cmnd}->geometry (sprintf "484x100+%d+%d", $geo{org_x} + 8, $geo{org_y} + 28);
+
+    my $cmd;
+
+    $Win{Cmnd}->Label (
+	-anchor     => "s",
+	-foreground => $color{Comment},
+	-text       => "$EnterTxt $CmndTxt")->pack (
+	    -pady => "2m",
+	    -side => "top");
+
+    Buttons_OK_Cancel ($Win{Cmnd}, "destroy",
+	sub {
+	    eval_cmd ($cmd, $ACTV_WAIT, $CmndTxt);
+	    $Win{Cmnd}->destroy;
+	    });
+
+    my $e = $Win{Cmnd}->Entry (
+	-relief             => "sunken",
+	-borderwidth        => 1,
+	-highlightthickness => 0,
+	-textvariable       => \$cmd)->pack (
+	    -side => "top",
+	    -padx => 10,
+	    -pady =>  5,
+	    -fill => "x");
+    $e->bind ("<Return>" => sub {
+	eval_cmd ($cmd, $ACTV_WAIT, $CmndTxt);
+	$Win{Cmnd}->destroy;
+	});
+    $e->focus;
+    } # enter_command
+
+sub xterm
+{
+    my $title = shift;
+    my $cmd = join " ", @_;
+    # Either it's explicitly asked for by & or
+    # it's a 2Pro -m call, which (we're already in xamen) can be done in xamen
+    if ($cmd =~ s/\s*&$// || $cmd =~ m/^2[a-z]{3}\s(.*\s)?-m\b/) {
+	system "@_";
+	}
+    else {
+	system "$term -title '$title' -e @_ &";
+	}
+    } # xterm
+
+sub restart
+{
+    my $s = $Win{Main}->geometry;
+    exec "$0 --geometry=$s @ARGV";
+    } # restart
+
+sub menubar_min
+{
+    my ($m, $h, $menu) = @_;
+
+    $m->command (
+	-label     => "~Menu ...",
+	-command   => \&pick_menu);
+    $m->separator;
+
+    $h->command (
+	-label     => "~Menu",
+	-command   => sub {
+	    info ("Menu:\n$mtree{mfile}{$menu}\n\n$mtree{title}{$menu}");
+	    });
+    $h->command (
+	-label     => "~Database",
+	-command   => sub {
+	    info ("ACLENV: $ENV{ACLENV}\n" .
+		  "DBPATH: $ENV{DBPATH}\n" .
+		   "SHMID: $ENV{SHMID}");
+	    });
+    $h->separator;
+    } # menubar_min
+
+sub keys_min
+{
+    my ($w, $menu) = @_;
+
+    if ($opt{a}) {
+	$w->bind ("<Key-exclam>"  => sub { enter_command ();});
+	$w->bind ("<Meta-s>"      => sub { xterm ("T-csh", "tcsh"); });
+	$w->bind ("<Meta-a>"      => sub { pick_appl ();});
+	$w->bind ("<Meta-m>"      => sub { pick_menu ();});
+	$w->bind ("<Meta-c>"      => sub { enter_command ();});
+	$w->bind ("<Meta-q>"      => sub { exit;});
+	}
+
+    my $prev = sub {
+	if (@mstack > 1) {
+	    $w->destroy;
+	    eval $mtree{envir}{pop @mstack};
+	    }
+	};
+    $w->bind ("<F1>" => $prev);
+    $w->bind ("<s>"  => $prev);
+    $w->bind ("<F5>" => \&exit);
+    $w->bind ("<q>"  => \&exit);
+    # <F7> => "<Button-2>";
+    $w->bind ("<F7>" => sub { info ("Menu:\n$mtree{mfile}{$menu}\n\n$mtree{title}{$menu}");});
+    } # keys_min
+
+sub do_nothing
+{
+    } # do_nothing
+
+sub initmen
+{
+    my $menu  = $mstack[0];
+    my $title = $mtree{title}{$menu};
+
+    $Win{Main} = MainWindow->new;
+    $Win{Main}->configure (
+	-bg => $color{background},
+	-fg => $color{foreground});
+    $Win{Main}->optionAdd ("*background" => $color{background});
+    $Win{Main}->optionAdd ("*foreground" => $color{foreground});
+    $Win{Main}->optionAdd ("*activeBackground" => $color{foreground});
+    $Win{Main}->optionAdd ("*activeForeground" => $color{background});
+
+    $Win{Main}->title ($mtree{title}{$menu});
+    $Win{Main}->geometry ("$geo{org_w}"."x$geo{org_h}+$geo{org_x}+$geo{org_y}");
+
+    my $MenuBar = $Win{Main}->Menu (-borderwidth => 0);
+    $Win{Main}->configure (-menu => $MenuBar);
+
+    my $m = $MenuBar->cascade (-label => "~Xamen");
+    my $h = $MenuBar->cascade (-label => "~Help");
+    menubar_min ($m, $h, $menu);
+    $m->command (
+	-label     => "~$RestartTxt",
+	-command   => \&restart);
+    $m->command (
+	-label     => "~$ExitTxt",
+	-command   => \&exit);
+    $h->command (
+	-label     => "~About",
+	-command   => [\&info, "Xamen [$VERSION]\n" .
+			       "a Perl/Tk port for X11R6 of cshmen\n" .
+			       "written by H.M. Brand"]);
+
+    keys_min ($Win{Main}, $menu);
+    $opt{a} and $Win{Main}->bind ("<Meta-r>", \&restart);
+
+    my $f = $Win{Main}->Frame (
+	-foreground => $color{foreground},
+	-background => $color{background})->pack (
+	    -side => "right",
+	    -fill => "both");
+
+    $f->Button (
+	-height             => 30,
+	-width              => 72,
+	-borderwidth        => 1,
+	-highlightthickness => 0,
+	-image              => $f->Pixmap (-file => $company_logo_image_file),
+	-command            => [ \&info, $company_info_string ],
+	-background         => $color{background})->pack (
+	    -side => "top");
+
+    $f->Button (
+	-text               => $ExitTxt,
+	-borderwidth        => 1,
+	-highlightthickness => 0,
+	-width              => 5,
+	-command            => [ $Win{Main} => "destroy" ],
+	-foreground         => $color{foreground},
+	-background         => $color{background})->pack (
+	    -side   => "bottom",
+	    #-expand => 1
+	    );
+    my $b = $f->Button (
+	-text               => "Shell",
+	-borderwidth        => 1,
+	-highlightthickness => 0,
+	-width              => 5,
+	-command            => [ \&xterm, "T-csh", "tcsh" ],
+	-foreground         => $color{foreground},
+	-background         => $color{background})->pack (
+	    -side => "bottom");
+    $opt{a} or $b->configure (-state => "disabled");
+    $b = $f->Button (
+	-text               => "Menu",
+	-borderwidth        => 1,
+	-highlightthickness => 0,
+	-width              => 5,
+	-command            => \&pick_menu,
+	-foreground         => $color{foreground},
+	-background         => $color{background})->pack (
+	    -side => "bottom");
+    $opt{a} or $b->configure (-state => "disabled");
+    $b = $f->Button (
+	-text               => "Applic",
+	-borderwidth        => 1,
+	-highlightthickness => 0,
+	-width              => 5,
+	-command            => \&pick_appl,
+	-foreground         => $color{foreground},
+	-background         => $color{background})->pack (
+	    -side => "bottom");
+    $opt{a} or $b->configure (-state => "disabled");
+    $b = $f->Button (
+	-text               => $CmndTxt,
+	-borderwidth        => 1,
+	-highlightthickness => 0,
+	-width              => 5,
+	-command            => \&enter_command,
+	-foreground         => $color{foreground},
+	-background         => $color{background})->pack (
+	    -side => "bottom");
+    $opt{a} or $b->configure (-state => "disabled");
+
+    $f->Clock ()->pack (
+	-side   => "bottom",
+	-expand => 1)->config (
+	    timeFont => "-misc-fixed-medium-r-normal--13-*-75-75-c-*-iso8859-1",
+	    dateFont => "-misc-fixed-medium-r-normal--13-*-75-75-c-*-iso8859-1");
+
+    $icon = $Win{Main}->Pixmap (-file => $xamen_logo_file);
+    $Win{Main}->Icon (-image => $icon);
+
+    dis_men ($Win{Main});
+    } # initmen
+
+sub new_men
+{
+    my ($nm) = @_;
+
+    get_men ($nm) or return;
+    my $menu = $mstack[-1];
+
+    Exists ($Win{Win}{$menu}) and $Win{Win}{$menu}->destroy;
+    my $win = $Win{Win}{$menu} = $Win{Main}->Toplevel;
+
+    $win->title ($mtree{title}{$menu});
+    $win->Icon (-image => $icon);
+    $win->iconname ($nm);
+    $win->geometry (sprintf ("500x340+%d+%d",
+	$geo{org_x} + 8 * $#mstack, $geo{org_y} + 28 * $#mstack));
+
+    my $MenuBar = $win->Frame ()->pack (
+	-side => "top",
+	-fill => "x");
+    my $m = $MenuBar->Menubutton (
+	-text      => "Xamen",
+	-underline => 0);
+    my $h = $MenuBar->Menubutton (
+	-text      => "Help",
+	-underline => 0);
+    menubar_min ($m, $h, $menu);
+    $m->pack (-side => "left");
+    $h->pack (-side => "right");
+
+    keys_min ($win, $menu);
+
+    dis_men ($win);
+    } # new_men
+
+sub help
+{
+    my ($text, $title, $scrollable) = @_;
+
+    defined $text	or  return;
+    $text eq ""		and return;
+
+    my $textf = expand_arg ($text);
+    if (-f $textf) {
+	local $/ = undef;
+
+	open HELP, $textf or return merror ("Cannot open '$text'");
+	($text = <HELP>) =~ s/\n(\f|\^L)/\n/gi;
+	close HELP;
+	}
+
+    if (Exists $Win{Help}) {
+	$Win{Help}->deiconify;
+	$Win{Help}->raise;
+	}
+    else {
+	$Win{Help} = $Win{Main}->Toplevel;
+	$Win{Help}->iconname ("Help");
+
+	Button_OK ($Win{Help}, sub { $Win{Help}->withdraw });
+
+	my $f = $Win{Help}->Frame ()->pack (
+	    -side => "left",
+	    -padx => "4m");
+	$f->Label (-bitmap => "questhead")->pack;
+	$f->Label (-bitmap => "questhead")->pack;
+	$f->Label (-bitmap => "questhead")->pack;
+
+	my $s = $Win{Help}->Scrolled ("ROText",
+	    -scrollbars             => "osoe",
+		-height             => $geo{helpHeight},
+		-width              => $geo{helpWidth},
+		-foreground         => $color{Comment},
+		-highlightthickness => 0,
+		-setgrid            => 1)->pack (
+		    -expand => 1,
+		    -fill   => "both");
+	$HelpTxt          = $s->Subwidget ("scrolled");
+	$Win{HelpHScroll} = $s->Subwidget ("xscrollbar");
+	}
+
+    $Win{HelpHScroll}->packForget;
+    if ($scrollable) {
+	$Win{HelpHScroll}->pack (
+	    -side   => "bottom",
+	    -before => $HelpTxt,
+	    -fill   => "x");
+	$HelpTxt->configure (-wrap => "none");
+	}
+    else {
+	$HelpTxt->configure (-wrap => "word");
+	}
+    $Win{Help}->title ($title);
+    $HelpTxt->configure (
+	-state  => "normal",
+	-cursor => "watch");
+    $HelpTxt->delete ("1.0", "end");
+    $Win{Help}->update;
+    $text =~ s/\|$// and chomp ($text = `$text`);
+    $HelpTxt->insert ("1.0", $text);
+    $HelpTxt->mark ("set", "insert", "1.0");
+    $HelpTxt->configure (
+	-state  => "disabled",
+	-cursor => "arrow");
+    } # help
+
+sub mhelp
+{
+    my ($id) = (0 .. 9, "A" .. "F", "", "Q")[int ($_[0]) - 2];
+    my $menu = $mstack[-1];
+    my $m_id = "$menu:$id";
+
+    $mtree{act}{$m_id} & $ACTV_ACT and
+	help ($mtree{hlp}{$m_id}, $mtree{label}{$m_id}, 0);
+    } # mhelp
+
+sub minfo
+{
+    my ($id) = (0 .. 9, "A" .. "F", "", "Q")[(split m/\./, $_[0])[0] - 2];
+    my $menu = $mstack[-1];
+    my $m_id = "$menu:$id";
+    my $cmd  = $mtree{cmd}{$m_id};
+
+    $cmd eq ""				and return;
+    $mtree{act}{$m_id} & $ACTV_ACT	or  return;
+
+    info ("$id: $mtree{label}{$m_id}\n'$cmd'\n$mtree{act}{$m_id}");
+    } # minfo
+
+sub eval_quests
+{
+    my ($cmd, $wait, $title) = @_;
+    my @cmd = split m/\s+/, $cmd;
+
+    my @label  = ();
+    my @answer = ();
+    my @prefix = ();
+    my @option = ();
+    my @hlpfil = ();
+
+    Exists ($Win{Ques})	and $Win{Ques}->destroy;
+
+    $Win{Ques} = $Win{Main}->Toplevel;
+    $Win{Ques}->title ($title);
+    $Win{Ques}->iconname ("Quest");
+
+    my $ok = sub {
+	my @c = @cmd;
+	my $ok = 1;
+	foreach my $i (0 .. @c) {
+	    my $arg = $c[$i];
+	    $arg =~ s/^\?([0-9A-F])//i	or next;
+	    my $y = index "0123456789ABCDEF", uc $1;
+	    $arg = expand_arg ($answer[$y]);
+	    if ($option[$y] =~ m/R/ && $arg eq "") {
+		$ok = 0;
+		merror "$label[$y] is required";
+		last;
+		}
+	    if ($option[$y] =~ m/e/ && ! -r $arg) {
+		$ok = 0;
+		merror "$label[$y] should exist";
+		last;
+		}
+	    if ($option[$y] =~ m/d/ && ! -d $arg) {
+		$ok = 0;
+		merror "$label[$y] should be an existing directory";
+		last;
+		}
+	    if ($option[$y] =~ m/[fs]/ && ! -f $arg) {
+		$ok = 0;
+		merror "$label[$y] should be an existing file";
+		last;
+		}
+	    if ($option[$y] =~ m/s/ && ! -s $arg) {
+		$ok = 0;
+		merror "$label[$y] should not be empty";
+		last;
+		}
+	    $arg ne "" and substr ($arg, 0, 0) = $prefix[$y];
+	    $c[$i] = $arg;
+	    }
+	if ($ok) {
+#	    $f->configure (-cursor => "watch");
+	    my $arg = join (" ", @c);
+	    #info ("÷$arg÷");
+	    eval_cmd ($arg, $wait, $title);
+	    $Win{Ques}->destroy;
+	    }
+	};
+
+    Buttons_OK_Cancel ($Win{Ques}, "destroy", $ok);
+
+    $Win{Ques}->Label (
+	-bitmap => "question")->pack (
+	    -padx => "4m",
+	    -side => "left");
+
+    my ($i, $arg, $y, $sep, $lwidth, $vwidth);
+    $lwidth =  0;
+    $vwidth = 40;
+    foreach $i (0 .. $#cmd) {
+	$arg = $cmd[$i];
+	defined $arg or next;
+	$arg =~ s/^\?([0-9A-F])//i or next;
+
+	$y   = index "0123456789ABCDEF", uc $1;
+	$sep = ",";
+	$arg =~ s/^,(.)// and $sep = "\\$1";
+	$arg =~ s/_/ /g;
+	($label[$y], $answer[$y], $prefix[$y], $option[$y], $hlpfil[$y]) =
+	    split m/$sep/, $arg . $sep x 4, 5;
+	$answer[$y] = expand_arg ($answer[$y]);
+	if ($option[$y] =~ m/C/) {
+	    ($arg = $answer[$y]) =~ s/^[\s_]+//;
+	    $y = length $arg;
+	    $y > $vwidth and $vwidth = $y;
+	    }
+	else {
+	    $y = length $label[$y];
+	    $y > $lwidth and $lwidth = $y;
+	    }
+	}
+    foreach $i (0 .. 15) {
+	my $label = $label[$i];
+	defined $label or  next;
+	$label eq ""   and next;
+	my $f = $Win{Ques}->Frame ()->pack (
+	    -side   => "top",
+	    -expand => 1,
+	    -fill   => "both");
+	if ($option[$i] =~ m/C/) {
+	    $label =~ s/^[\s_]+//;
+	    $f->Label (
+		-foreground => $color{Entry},
+		-width      => $vwidth,
+		-anchor     => "w",
+		-justify    => "left",
+		-text       => $label)->pack (
+		    -side   => "right",
+		    -fill   => "both",
+		    -expand => 1);
+	    $label = "";
+	    }
+	else {
+	    my $e = $f->Entry (
+		-relief             => "sunken",
+		-width              => $vwidth,
+		-borderwidth        => 1,
+		-highlightthickness => 0,
+		-textvariable       => \$answer[$i])->pack (
+		    -side   => "right",
+		    -fill   => "both",
+		    -expand => 1);
+	    $option[$i] =~ m/S/ and $e->configure (-show => "*");
+	    $e->bind ("<Return>" => $ok);
+	    $hlpfil[$i] ne "" and
+		$e->bind ("<Button-3>" => sub {
+		    help ($hlpfil[$i], $label, 0);
+		    });
+	    }
+	$f->Label (
+	    -foreground => $color{Comment},
+	    -width      => $lwidth,
+	    -anchor     => "e",
+	    -justify    => "right",
+	    -text       => $label)->pack (
+		-padx => "2m",
+		-side => "right");
+	}
+    } # eval_quests
+
+sub eval_cmd
+{
+    my ($cmd, $wait, $title) = @_;
+
+    $cmd =~ s/\s+$//;
+    $cmd =~ s/^\s+//;
+    $cmd eq "" and return;
+
+    if ($cmd =~ m/^M\s(.*)/) {
+	new_men ($1);
+	}
+    elsif ($cmd =~ m/^P\s(.*)/) {
+	eval $1;
+	}
+    else {
+	if ($cmd =~ m/\s\?/) {
+	    eval_quests ($cmd, $wait, $title);
+	    }
+	else {
+	    $cmd =~ s/\s+\@(\S+)// and chdir expand_arg ($1);
+	    $cmd = join " ", map { $_ = expand_arg ($_); } split (m/ /, $cmd);
+	    $opt{v} and info ("Command\n'$cmd'\nis executed on\n" . `pwd`);
+	    if ($wait) {
+		$wait = $ENV{COLUMNS};
+		$ENV{COLUMNS} = $geo{helpWidth};
+		help ("$cmd 2>&1|", "User Command", 1);
+		$ENV{COLUMNS} = $wait;
+		}
+	    else {
+		xterm ($title, $cmd);
+		}
+	    }
+	chdir $mdir;
+	}
+    } # eval_cmd
+
+sub invoke
+{
+    my $a = shift;
+    my $menu = $mstack[-1];
+    my $id = $a =~ m/\./ ? (0 .. 9, "A" .. "F", "", "Q")[int ($a) - 2] : $a;
+    my $m_id = "$menu:$id";
+    my $cmd  = $mtree{cmd}{$m_id};
+
+    if ($id eq "Q") {
+	$menu = @mstack == 1 ? $Win{Main} : $Win{Win}{$mstack[-1]};
+	$menu->destroy;
+	eval $mtree{envir}{pop @mstack};
+	return;
+	}
+
+    $cmd eq ""				and return;
+    $mtree{act}{$m_id} & $ACTV_ACT	or  return;
+
+    $opt{v} and info ("$id: $mtree{label}{$m_id}\n'$cmd'");
+    eval_cmd ($cmd, $mtree{act}{$m_id} & $ACTV_WAIT, $mtree{label}{$m_id});
+    } # invoke
+
+sub dis_men
+{
+    my $w = shift;
+    my ($label, @has_help);
+
+    my $menu = $mstack[-1];
+    my $last = "";
+    my $l;
+    my $t = $w->ROText (
+	-width              => 60,
+	-height             => 30,
+	-relief             => "sunken",
+	# -padx replaces -lmargin1 => 1c, -lmargin2 => 1c in the $t->tag ()'s
+	-padx		    => ".65c",
+	-font               => $font{Fix},
+	-foreground         => $color{Entry},
+	-borderwidth        => 1,
+	-highlightthickness => 0,
+	-setgrid            => 0)->pack (
+	    -expand => 1,
+	    -fill   => "both");
+
+    my $hh = "hot";
+    $t->tag ("configure", "text", -foreground => $color{Comment});
+    $t->tag ("configure", "menu", -foreground => $color{Menu});
+    $t->tag ("configure", "hot",
+	-relief      => "raised",
+	-borderwidth => 1,
+ 	-background  => $color{Hot},
+	-foreground  => $color{Current});
+    $t->tag ("configure", "realhot",
+	-relief      => "raised",
+	-borderwidth => 1,
+ 	-background  => $color{RealHot},
+	-foreground  => $color{Current});
+    foreach my $m (("menu", "entry")) {
+	$t->tag ("bind", $m, "<1>"  => sub {invoke $t->index ("current"); });
+	$t->tag ("bind", $m, "<F2>" => sub {invoke $t->index ("current"); });
+	$t->tag ("bind", $m, "<2>"  => sub { minfo $t->index ("current"); });
+	$t->tag ("bind", $m, "<3>"  => sub { mhelp $t->index ("current"); });
+	$t->tag ("bind", $m, "<F6>" => sub { mhelp $t->index ("current"); });
+	$t->tag ("bind", $m,
+	    "<Enter>" => sub {
+		my $e = $t->XEvent;
+		my ($x, $y) = ($e->x, $e->y);
+		$last = $t->index ("\@$x,$y linestart");
+		$hh = $has_help[$last - 2] ? "realhot" : "hot";
+		$t->tag ("add", $hh, $last, "$last lineend");
+		$t->configure (-cursor => "top_left_arrow");
+		});
+	$t->tag ("bind", $m,
+	    "<Leave>" => sub {
+		$t->tag ("remove", $hh, "1.0", "end");
+		$t->configure (-cursor => "xterm");
+		});
+	$t->tag ("bind", $m,
+	    "<Motion>" => sub {
+		my $e = $t->XEvent;
+		my ($x, $y) = ($e->x, $e->y);
+		my $newLine = $t->index ("\@$x,$y linestart");
+		if ($newLine ne $last) {
+		    $t->tag ("remove", $hh, "1.0", "end");
+		    $last = $newLine;
+		    $hh = $has_help[$last - 2] ? "realhot" : "hot";
+		    $t->tag ("add", $hh, $last, "$last lineend");
+		    }
+		});
+	}
+
+    $t->insert ("end", "\n", [qw (menu "")]);
+    @has_help = ();
+    foreach my $id ((0 .. 9, "A" .. "F")) {
+	my $m = "$menu:$id";
+	$label = $mtree{label}{$m};
+	push @has_help, defined $mtree{hlp}{$m} ? 1 : 0;
+	unless (defined $label) {
+	    $t->insert ("end", "\n", "text");
+	    next;
+	    }
+
+	my $a = $mtree{alias}{$m};
+	my $k = ($a =~ m/[a-z]/i) ? "<".lc ($a).">" : "<Key-" . lc ($a).">";
+	$w->bind ($k => sub { invoke ($id); });
+
+	if ($mtree{act}{$m} & $ACTV_MENU) {
+	    $t->insert ("end", "$a. $label\n", [qw (menu "")]);
+	    next;
+	    }
+	if ($mtree{act}{$m} & $ACTV_ACT) {
+	    $t->insert ("end", "$a. $label\n", [qw (entry "")]);
+	    next;
+	    }
+	$t->insert ("end", "   $label\n", "text");
+	}
+    push @has_help, 0;
+    $t->insert ("end", "\n", "text");
+    $label = @mstack > 1 ? $mtree{title}{$mstack[$#mstack - 1]} : $mtree{label}{"$menu:Q"};
+    $t->insert ("end", "$label\n", [qw (menu "")]);
+
+    $t->configure (-state => "disabled");
+    } # dis_men

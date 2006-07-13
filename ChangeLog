@@ -1,0 +1,11 @@
+Revision history for cshmen/xamen
+
+3.50	Thu 13 Jul 2006
+
+    - OpenSourced the existing cshmen/xamen
+    - cshmen.c changed to ANSI compliant prototypes. Passes gcc -Wall
+      more -W flags should be tried
+    - made xamen pass and run under 'use strict;'
+      use warnings; still on TODO
+
+Older revision history in SCCS not available.

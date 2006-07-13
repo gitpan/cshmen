@@ -1,0 +1,34 @@
+/* XPM */
+static char * ProLogo [] = {
+/* width height ncolors cpp [x_hot y_hot] */
+"55 23 5 1 0 0",
+/* colors */
+" 	s iconGray2	m white	c #c8c8c8c8c8c8",
+".	c #404040404040",
+"X	s iconColor1	m black	c black",
+"o	c #7F7F7F7F7F7F",
+"O	c #00000000CDCD",
+/* pixels */
+"                                                       ",
+"          ................ X oooooooooooooooo          ",
+"      .................... X oooooooooooooooooooo      ",
+"    ...................... X oooooooooooooooooooooo    ",
+"   ....................... X ooooooooooooooooooooooo   ",
+"  ..........      ........ X oooooooo      oooooooooo  ",
+"  ..........      ........ X oooooooo      oooooooooo  ",
+"   ....................... X ooooooooooooooooooooooo   ",
+"    ...................... X oooooooooooooooooooooo    ",
+"      .................... X oooooooooooooooooooo      ",
+"          ................ X oooooooooooooooo          ",
+"                  ........ X oooooooo                  ",
+"                  ........ X oooooooo                  ",
+"                  ........ X oooooooo                  ",
+"                                                       ",
+"OOOOOO  OOOOOO   OOOOO   OOOOO  O     O OOOOOO    OOO  ",
+"O     O O     O O     O O     O O     O O     O  O   O ",
+"O     O O     O O     O O  X    O     O O     O O     O",
+"OOOOOO  OOOOOO  O     O O  X    O     O OOOOOO  O     O",
+"O       O   O   O     O O  X    O     O O   O   OOOOOOO",
+"O       O    O  O     O O     O O     O O    O  O     O",
+"O       O     O  OOOOO   OOOOO   OOOOOO O     O O     O",
+"                                                       "};

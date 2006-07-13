@@ -1,0 +1,24 @@
+
+  1. Edit Makefile, and change to your needs. There is no confiogure
+  2. Edit cshmen.c and check if #include <curses.h> could work
+  3. Make
+
+	$ make
+
+  4. Manually correct all the errors untill build passes
+  5. Test
+
+	$ ./cshmen -m .
+
+  6. Copy cshmen and xamen to the required directory in your $PATH
+  7. Create a folder where your menu's will reside
+
+	$ mkdir ~/.menu
+
+  8. Copy the default menu there
+
+	$ cp .cshmen ~/.menu
+
+The Default folder for menu's is $HOME, unless you've set $MENUDIR
+The default menu is .cshmen, unless you have set $MENUDEF
+
