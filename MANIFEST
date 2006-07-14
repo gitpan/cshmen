@@ -5,6 +5,7 @@ INSTALL
 MANIFEST
 Makefile
 ProLogo.xpm
+README
 Xamen.xpm
 cshmen.c
 xamen

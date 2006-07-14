@@ -1,0 +1,125 @@
+=head1 NAME
+
+cshmen, xamen - Basic menu application in curses or perl/Tk
+
+=head1 SYNOPSYS
+
+  # cshmen [-?] [-a] [-e] [-d] [-v] [-n] [-m dir] [menu]
+
+  # xamen  [-?] [-a] [-e] [-d] [-v] [-n] [-m dir] [menu]
+
+=head1 DESCRIPTION
+
+cshmen is a low level recursive menu program using curses.
+xamen is the perl/Tk translation for cshmen
+
+=head1 INSTALLATION
+
+As this was built for internal use only, there are no serious
+attempts yet made to create a working environment for building
+and installing.
+
+ $ make
+
+Should build cshmen in the current folder. You might need to
+change #include <curses.h> to #include <ncurses.h> and maybe
+some lines in the Makefile too.
+
+=head1 DOCUMENTATION
+
+This is seriously missing in this dist, as the only available
+documentation is written in Uniplex. In Dutch. Both pretty
+useless for the OpenSource community.
+
+=head1 Menu format
+
+=head2 The menu files
+
+A menu file consists of menu lines. Each line looks like
+
+ID:MenuText:Command:State[:HelpFile]
+
+=over 4
+
+=item ID
+
+Two ID's are required: "H" for Header, and "Q" for Footer. In these
+two cases, the State is ignored (but still required).
+
+The H-line will be used to display the menu title. The command may
+optionally define a different environment for this menu (and all
+the descendants).
+
+The Q-line will be shown on the last line and is a placeholder for
+the <Back> action. Text is shown, but Command is ignored.
+
+For all the other lines ID denotes the line to display this item
+on, optionally followed by a letter to use instead (default is the
+line number). Lines 10 though 16 are indicated by 'A' through 'F'.
+
+    H:Home menu      ::1
+    1:Text for line 1:echo line 1:1
+    3=F:Fortune      :fortune:2
+    B:Test menu      :M test_menu:1
+    Q:Stop           ::1
+
+=item MenuText
+
+Free text to show in the menu. The colon is forbidden. and the
+underscores are translated to space.
+
+=item Command
+
+The command to be invoked
+A command can be a series of commands seperated by ' ; '. Whitespace
+matters. Each command can have optional command line arguments,
+redirection and a execution folder. Arguments can be questions.
+
+Commands that start with 'M ' call a menu. No ' ; ' allowed. If you
+*do* have a command 'M', use 'env'.
+
+  proc @Directory 1>/tmp/proc-1.log 2>>/tmp/proc-2.log -
+       ?0QuestText[,[DefaultValue][,[Prefix][,[Options][,[HelpFile]]]]
+
+=item State
+
+ 0 = Not shown (hidden). Item cannot be selected
+ 1 = Normal, active
+ 2 = Normal, but wait after execution finishes with a user prompt
+
+=item HelpFile
+
+Optional help description for this item
+
+=back
+
+=head1 TODO
+
+ * Documentation: pod, manual page or serious readme. NO info!
+ * A better Makefile
+ * Some sort of install procedure
+ * example menu's
+ * See top of xamen
+
+=head1 AUTHOR
+
+H.Merijn Brand, <h.m.brand@procura.nl>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (C) 1986-2006 H.Merijn Brand, PROCURA B.V.
+
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+
+=cut

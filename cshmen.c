@@ -1,6 +1,6 @@
-/*	Program		: %M% (%Q%)
- *      Version		: V %R%.%L%
- *      Date last vers.	: %E%,	%U%
+/*	Program		: cshmen (UNIX-TOOLS)
+ *      Version		: V 3.50
+ *      Date last vers.	: 06/07/13,	16:10:20
  *      Author		: H.Merijn Brand
  *	Description	: Menu Manager
  *
@@ -97,7 +97,7 @@ Q:Stop::1
  *****************************************************************************/
 
 char VERSION[]   = "cshmen: 3.50 - (m)'06 [13 Jul 2006]\n";
-char _SCCSid[]   = "%W%	[%E%]	(m)'06";
+char _SCCSid[]   = "@(#)cshmen	3.50	[06/07/13]	(m)'06";
 char _Version_[] = "#\300\0\0??p\377Nu\0\0(C) Copyright PROCURA B.V. Version V.3.50\n\
 System V (m)'06 <13 Jul 2006>";
 
@@ -232,8 +232,8 @@ static char *internal_env[100] = {
  */
 static void Putenv (char *n, char *v)
 {
-    auto	int	l;
-    auto	char	*e;
+    int  l;
+    char *e;
     
     l = strlen (n) + 4 + (v ? strlen (v) : 0);
     e = (char *)calloc (l, sizeof (char));
@@ -253,8 +253,8 @@ static void Putenv (char *n, char *v)
 
 static void repaint (WINDOW *w)
 {
-    WINDOW	*r;
-    int	begx, maxx, begy, maxy;
+    WINDOW *r;
+    int    begx, maxx, begy, maxy;
 
     getbegyx (w, begy, begx);
     getmaxyx (w, maxy, maxx);
@@ -275,47 +275,47 @@ static void World (int w)
 	wclear (wworld);
 	wrefresh (wworld);
 	resetterm ();
+	return;
 	}
-    else {	/* Restore screen to menu-mode		*/
-	fixterm ();
-	if (wworld) {
-	    wclear (wworld);
-	    wrefresh (wworld);
-	    delwin (wworld);
-	    }
-	wworld = (WINDOW *)0;
+    /* Restore screen to menu-mode		*/
+    fixterm ();
+    if (wworld) {
+	wclear (wworld);
+	wrefresh (wworld);
+	delwin (wworld);
 	}
+    wworld = (WINDOW *)0;
     } /* World */
 
 static void FreeMenu (int n)
 {
-    Menu	*mp = menus[n];
-    int	i;
+    Menu *mp = menus[n];
+    int  i;
 
-    if (mp) {
-	if (dflg)
-	    (void)fprintf (stderr, "FreeMenu (%d)\n", n);
-	for (i = 0; i < LLINE; i++) {
-	    if (mp->line[i]) {
-		(void)free ((char *)(mp->line[i]));
-		mp->line[i] = (Menuline *)0;
-		}
+    if (!mp) return;
+
+    if (dflg)
+	(void)fprintf (stderr, "FreeMenu (%d)\n", n);
+    for (i = 0; i < LLINE; i++) {
+	if (mp->line[i]) {
+	    (void)free ((char *)(mp->line[i]));
+	    mp->line[i] = (Menuline *)0;
 	    }
-	for (i = 0; mp->env[i][0]; i++) {
-	    Putenv (mp->env[i][0], mp->env[i][1]);
-	    (void)free (mp->env[i][0]);
-	    (void)free (mp->env[i][1]);
-	    mp->env[i][0] = NIL;
-	    }
-	(void)free ((char *)mp);
-	menus[n] = (Menu *)0;
 	}
+    for (i = 0; mp->env[i][0]; i++) {
+	Putenv (mp->env[i][0], mp->env[i][1]);
+	(void)free (mp->env[i][0]);
+	(void)free (mp->env[i][1]);
+	mp->env[i][0] = NIL;
+	}
+    (void)free ((char *)mp);
+    menus[n] = (Menu *)0;
     } /* FreeMenu */
 
 static void str_compress (char *s, int l)
 {
-    char	*d;
-    int	j;
+    char *d;
+    int  j;
 
     d = s;
     j = 0;
@@ -366,12 +366,13 @@ static void str_compress (char *s, int l)
 
 static Menu *get_men (char *nm, int cm)
 {
-    static	char	line[2048];
-    Menu	*mp = (Menu *)0;
+    static char line[2048];
+
+    Menu     *mp = (Menu *)0;
     Menuline *ml;
-    int	i, j;
-    char	*m = line, *s, *ids = valid_ids;
-    FILE	*F;
+    int      i, j;
+    char     *m = line, *s, *ids = valid_ids;
+    FILE     *F;
 
     if (dflg)
 	(void)fprintf (stderr, "get_men (\"%s\", %d)\n", nm, cm);
@@ -486,17 +487,13 @@ static int unmap (WINDOW *w, int c)
 
 static int getmapped (WINDOW *w)
 {
-    auto	int	c;
-
-    c = unmap (w, wgetch (w));
-    return (c);
+    return (unmap (w, wgetch (w)));
     } /* getmapped */
 
 static int extra_fkey (WINDOW *w)
 {
-    int	x;
+    int x = wgetch (w);
 
-    x = wgetch (w);
     if (Wflg) {	/* We know about <Funct> keys for Wyse-60 */
 	if (x >= 'I' && x <= 'O') {       /* Function keys 10 - 16 */
 	    if (wgetch (w) == 0x0D)
@@ -542,17 +539,16 @@ static int extra_fkey (WINDOW *w)
 	    case 'r':	return (unmap (w, KEY_RIGHT));
 	    case 'u':	return (unmap (w, KEY_UP));
 	    }
-	return (1);
 	}
     return (1);
     } /* extra_fkey */
 
 static void dis_fkeys (int x)
 {
-    static   char   *keys[2][8] = {
+    static char *keys[2][8] = {
 	{ "Vrg mnu", "Keuze",  "", "", "Stop", "Help", "Info", "Verfris" },
 	{ "Prev",    "Select", "", "", "Exit", "Help", "Info", "Redraw"  }};
-    int    i;
+    int  i;
 
     if (!x) {
 	if (fkeyw) {
@@ -601,7 +597,7 @@ static void clear_all ()
 
 static void uwait ()
 {
-    int i;
+    int  i;
     char x;
 
     flushinp ();
@@ -637,7 +633,8 @@ static void u_box (WINDOW *w)
 
 static char *expand_arg (char *s)
 {
-    static   char buf[1024], env[256];
+    static char buf[1024], env[256];
+
     int  i = 0, j = 0, n;
     char *d = buf, *e;
 
@@ -693,11 +690,12 @@ static char *expand_arg (char *s)
 
 static void mhelp (Menuline *ml)
 {
-    static	char	s[HWIDTH], *c;
-    static	WINDOW	*h = (WINDOW *)0;
-    int	i, j;
-    FILE	*f;
-    long	sz;
+    static char   s[HWIDTH], *c;
+    static WINDOW *h = (WINDOW *)0;
+
+    int  i, j;
+    FILE *f;
+    long sz;
 
     if (!ml) {
 	if (h) {
@@ -785,12 +783,10 @@ static void mhelp (Menuline *ml)
 static int exec_men (Menuline *, int);
 static int inp_nstr (WINDOW *window, char *p_str, int cnt, int silent, int dl, int ef)
 {
-    int	c;
-    int	i, j, n;
-    int	e;	/* 0 = insert, 1 = replace */
-    char	*s = p_str;
-    int	action = 0, x, y;
-    struct IND	*ind;
+    int        c, i, j, n, action = 0, x, y;
+    int        e; /* 0 = insert, 1 = replace */
+    char       *s = p_str;
+    struct IND *ind;
 
     i = 0;
     n = strlen (s);
@@ -972,8 +968,9 @@ static int inp_nstr (WINDOW *window, char *p_str, int cnt, int silent, int dl, i
 
 static void logo ()
 {
-    static	char	Wpos[8] = "\033=  ", Vpos[24];
-    auto	int	curx, cury;
+    static char	Wpos[8] = "\033=  ", Vpos[24];
+
+    int curx, cury;
 
     getyx (stdscr, cury, curx);
     if (Wflg) {
@@ -992,10 +989,9 @@ static void logo ()
 
 static int dis_men (Menu *mp)
 {
-    Menuline	*ml;
-    int		i;
-    int		a, x;
-    struct IND	*ind;
+    Menuline   *ml;
+    int        i, a, x;
+    struct IND *ind;
 
     if (dflg)
 	(void)fprintf (stderr, "dis_men (0x%08x, %d)\n", (unsigned)mp, curm);
@@ -1083,8 +1079,8 @@ static int dis_men (Menu *mp)
 /* ARGSUSED */
 static void put_time (int sig)
 {
-    auto	int	x, y;
-    auto	time_t	tm;
+    int    x, y;
+    time_t tm;
 
     getyx (stdscr, y, x);
     tm = time ((time_t *)0);
@@ -1100,7 +1096,7 @@ static void put_time (int sig)
 
 static Menuline *choose (Menu *mp)
 {
-    int i, c;
+    int  i, c;
 
     if (dflg)
 	(void)fprintf (stderr, "choose (0x%08x)\n", (unsigned)mp);
@@ -1363,10 +1359,11 @@ static Menuline *choose (Menu *mp)
 
 static void dis_qkeys ()
 {
-    static	char	*keys[2][8] = {
+    static char *keys[2][8] = {
 	{ "Menu", "Keuze",  "", "", "Stop", "Help", "", "Verfris" },
 	{ "Menu", "Select", "", "", "Exit", "Help", "", "Redraw"  }};
-    int	i;
+
+    int  i;
 
     if (!fkeyw)
 	fkeyw = newwin (1, 80, LINES - 1, 0);
@@ -1397,15 +1394,14 @@ static void dis_qkeys ()
  */
 static char *dialogue_box (char *question, char *header)
 {
-    static	struct stat reqstat;
-    static	char	quest[1024], def_ans[1024];
-    WINDOW	*db = dbox;
-    char	*q = quest, *d, *o = "";
-    char	*a = &answers[dialogue_idx][0];
-    int	ql, al;
-    char	sep = ',', *opt, *hlpf, reqtype = (char)0;
-    int	dl = 0, ol = 0, optl = 0;
-    int	silent = 0, required = 0, editable = 0;
+    static struct stat reqstat;
+    static char        quest[1024], def_ans[1024];
+    WINDOW *db = dbox;
+    char   *q = quest, *d, *o = "";
+    char   *a = &answers[dialogue_idx][0];
+    char   sep = ',', *opt, *hlpf, reqtype = (char)0;
+    int    ql, al, dl = 0, ol = 0, optl = 0;
+    int    silent = 0, required = 0, editable = 0;
 
     if (!question) {
 	if (db)
@@ -1579,7 +1575,7 @@ static char *dialogue_box (char *question, char *header)
 
 static void execute (char *args[])
 {
-    auto	int	fd[2], i, f;
+    int  fd[2], i, f;
 
     for (i = 0; args[i]; i++) {
 	if (strcmp (args[i], "|") == 0) {
@@ -1608,8 +1604,7 @@ static int new_menu (char *);
 static int exec_men (Menuline *ml, int nxtcmd)
 {
     char *c, *twd, *std, *err;
-    int  i, j, k;
-    int  fork_flag, background, stdm = 0, errm = 0;
+    int  i, j, k, fork_flag, background, stdm = 0, errm = 0;
 
     if (!ml)
 	return (1);
@@ -1834,10 +1829,10 @@ static void init_men ()
 
 static void run_menu ()
 {
-    Menu	*mp;
-    Menuline	*mlp;
-    int	i, j, k;
-    char	*s, *r, *e;
+    Menu     *mp;
+    Menuline *mlp;
+    int      i, j, k;
+    char     *s, *r, *e;
 
     mp = menus[curm];
     if (dflg)

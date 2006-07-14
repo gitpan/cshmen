@@ -1,5 +1,3 @@
-H:Test Menu::1
-1:Recursive:M .cshmen:1
-3:echo:echo Blah:2
-6=T:tcsh:tcsh:2
+M:Test::1
+1:tcsh:tcsh:1
 Q:Stop::1
